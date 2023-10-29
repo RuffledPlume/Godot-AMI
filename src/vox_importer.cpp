@@ -1,8 +1,14 @@
 #include "vox_importer.h"
 
 #include "godot_cpp/variant/utility_functions.hpp"
-#include "godot_cpp/classes/file_access.hpp"
 #include "godot_cpp/variant/utility_functions.hpp"
+#include "godot_cpp/classes/file_access.hpp"
+#include "godot_cpp/classes/node3d.hpp"
+#include "godot_cpp/classes/resource_saver.hpp"
+#include "godot_cpp/classes/packed_scene.hpp"
+#include "godot_cpp/classes/ref.hpp"
+
+#include "vox_model.h"
 
 #define CHUNK_ID(Str)(Str[0] | Str[1] << 8 | Str[2] << 16 | Str[3] << 24)
 #define MAX_CHUNK_COUNT 10000
@@ -41,77 +47,34 @@ const uint32_t _DefaultPalatte[] = {
 		0xff880000, 0xff770000, 0xff550000, 0xff440000, 0xff220000, 0xff110000, 0xffeeeeee, 0xffdddddd,
 		0xffbbbbbb, 0xffaaaaaa, 0xff888888, 0xff777777, 0xff555555, 0xff444444, 0xff222222, 0xff111111};
 
-int32_t VoxImporter::_get_import_order() const
+uint32_t VoxImporter::_get_import_flags() const
 {
-	return 0;
+	return godot::EditorSceneFormatImporter::IMPORT_SCENE;
 }
 
-double VoxImporter::_get_priority() const
+godot::PackedStringArray VoxImporter::_get_extensions() const
 {
-	return 100;
-}
-
-int32_t VoxImporter::_get_preset_count() const
-{
-	return 0;
-}
-
-godot::String VoxImporter::_get_preset_name(int32_t preset_index) const
-{
-	return "Default";
-}
-
-godot::String VoxImporter::_get_importer_name() const
-{
-	return "Vox Importer";
-}
-
-godot::String VoxImporter::_get_visible_name() const
-{
-	return "Vox Importer";
-}
-
-godot::PackedStringArray VoxImporter::_get_recognized_extensions() const
-{
-	return godot::Array::make("vox");
-}
-
-godot::String VoxImporter::_get_resource_type() const
-{
-	return "PackedScene";
-}
-
-godot::String VoxImporter::_get_save_extension() const
-{
-	return "tscn";
-}
-
-godot::Dictionary _make_import_option(godot::String name, godot::Variant default)
-{
-	godot::Dictionary result;
-	result["name"] = name;
-	result["default_value"] = default;
+	godot::PackedStringArray result;
+	result.push_back("vox");
 	return result;
 }
 
-godot::TypedArray<godot::Dictionary> VoxImporter::_get_import_options(const godot::String& path, int32_t preset_index) const
+void VoxImporter::_get_import_options(const godot::String& path)
 {
-	godot::TypedArray<godot::Dictionary> options;
-	options.push_back(_make_import_option("test", 0.0f));
-	return options;
+
 }
 
-bool VoxImporter::_get_option_visibility(const godot::String& path, const godot::StringName& option_name, const godot::Dictionary& options) const
+godot::Variant VoxImporter::_get_option_visibility(const godot::String& path, bool for_animation, const godot::String& option) const
 {
 	return true;
 }
 
-godot::Error VoxImporter::_import(const godot::String& source_file, const godot::String& save_path, const godot::Dictionary& options, const godot::TypedArray<godot::String>& platform_variants, const godot::TypedArray<godot::String>& gen_files) const
+godot::Object* VoxImporter::_import_scene(const godot::String& path, uint32_t flags, const godot::Dictionary& options)
 {
-	godot::Ref<godot::FileAccess> file = godot::FileAccess::open(source_file, godot::FileAccess::ModeFlags::READ);
+	godot::Ref<godot::FileAccess> file = godot::FileAccess::open(path, godot::FileAccess::ModeFlags::READ);
 	if (file.is_null())
 	{
-		return godot::Error::ERR_CANT_OPEN;
+		return nullptr;
 	}
 
 	const char* Header = "VOX ";
@@ -120,13 +83,16 @@ godot::Error VoxImporter::_import(const godot::String& source_file, const godot:
 		if (file->get_8() != Header[i])
 		{
 			godot::UtilityFunctions::print("ERROR: Failed to Parse Vox Format Header");
-			return godot::Error::FAILED;
-
+			return nullptr;
 		}
 	}
 
 	uint32_t Version = file->get_32();
 	godot::UtilityFunctions::print("Vox Header Detected, Importing Vox File of Version: ", Version);
+
+	godot::Node3D* Root = memnew(godot::Node3D);
+	Root->set_name(path.get_basename());
+	VoxModel* Model = nullptr;
 
 	uint32_t ChunkCount = 0;
 	while (file->get_position() < file->get_length())
@@ -141,10 +107,28 @@ godot::Error VoxImporter::_import(const godot::String& source_file, const godot:
 				break; // Main Chunk is just the start of all the chunks. So dont do anything
 			case CHUNK_ID("SIZE"):
 			{
-				uint32_t Size_X = file->get_32();
-				uint32_t Size_Y = file->get_32();
-				uint32_t Size_Z = file->get_32();
-				godot::UtilityFunctions::print("Chunk Size of ", Size_X, Size_Y, Size_Z);
+				Model = memnew(VoxModel);
+				Model->set_name(path.get_basename() + "_" + godot::itos(Root->get_child_count()));
+				Root->add_child(Model);
+
+				Model->Size.x = file->get_32();
+				Model->Size.y = file->get_32();
+				Model->Size.z = file->get_32();
+				Model->Voxels.resize(Model->Size.x * Model->Size.y * Model->Size.z);
+				godot::UtilityFunctions::print("Chunk Size of ", Model->Size);
+				break;
+			}
+			case CHUNK_ID("XYZI"):
+			{
+				uint32_t VoxelCount = file->get_32();
+				for (uint32_t i = 0; i < VoxelCount; i++)
+				{
+					uint8_t x = file->get_8();
+					uint8_t z = file->get_8();
+					uint8_t y = file->get_8();
+					uint8_t palette_idx = file->get_8();
+					Model->set_voxel(x, y, z, palette_idx);
+				}
 				break;
 			}
 			default:
@@ -160,11 +144,17 @@ godot::Error VoxImporter::_import(const godot::String& source_file, const godot:
 		if(ChunkCount++ >= MAX_CHUNK_COUNT)
 		{
 			godot::UtilityFunctions::print("Fatal: Breaking out of Import Loop... Exceed Chunk Count Potential infinite loop?!");
-			return godot::Error::FAILED;
+			return nullptr;
 		}
 	}
 
-	return godot::Error::FAILED;
+	//Go through all the Models we've read in from the VoxFile and generate their meshes
+	for (int i = 0; i < Root->get_child_count(); i++)
+	{
+		((VoxModel*)Root->get_child(i))->generate_mesh();
+	}
+
+	return Root;
 }
 
 void VoxImporter::_bind_methods() {}

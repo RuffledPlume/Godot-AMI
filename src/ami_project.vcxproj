@@ -11,11 +11,13 @@
   <ItemGroup>
     <ClCompile Include="register_types.cpp" />
     <ClCompile Include="vox_importer.cpp" />
+    <ClCompile Include="vox_model.cpp" />
     <ClCompile Include="vox_plugin.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="register_types.h" />
     <ClInclude Include="vox_importer.h" />
+    <ClInclude Include="vox_model.h" />
     <ClInclude Include="vox_plugin.h" />
   </ItemGroup>
   <ItemGroup>

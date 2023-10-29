@@ -10,12 +10,17 @@
 
 #include "vox_plugin.h"
 #include "vox_importer.h"
+#include "vox_model.h"
 
 using namespace godot;
 
 void gdextension_initialize(ModuleInitializationLevel p_level)
 {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR)
+	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE)
+	{
+		ClassDB::register_class<VoxModel>();
+	}
+	else if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR)
 	{
 		ClassDB::register_class<VoxEditorPlugin>();
 		ClassDB::register_class<VoxImporter>();
